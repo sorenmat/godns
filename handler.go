@@ -17,6 +17,7 @@ type Question struct {
 	qname  string
 	qtype  string
 	qclass string
+	cidr   string
 }
 
 func (q *Question) String() string {
@@ -82,23 +83,38 @@ func NewHandler() *GODNSHandler {
 	return &GODNSHandler{resolver, cache, negCache, hosts}
 }
 
+func getCIDR(remote string) string {
+	for _, cidr := range settings.Cidrs.Mask {
+		logger.Debug("Trying CIDR mask %s", cidr)
+		_, cidrnet, err := net.ParseCIDR(cidr)
+		if err != nil {
+			panic(err) // assuming I did it right above
+		}
+		myaddr := net.ParseIP(remote)
+		if cidrnet.Contains(myaddr) {
+			logger.Info("Found a CIDR match %s", cidrnet)
+			return cidr
+		}
+	}
+	return ""
+}
+
 func (h *GODNSHandler) do(Net string, w dns.ResponseWriter, req *dns.Msg) {
 	q := req.Question[0]
-	Q := Question{UnFqdn(q.Name), dns.TypeToString[q.Qtype], dns.ClassToString[q.Qclass]}
-
 	var remote net.IP
 	if Net == "tcp" {
 		remote = w.RemoteAddr().(*net.TCPAddr).IP
 	} else {
 		remote = w.RemoteAddr().(*net.UDPAddr).IP
 	}
-	logger.Info("%s lookup　%s", remote, Q.String())
+	Q := Question{UnFqdn(q.Name), dns.TypeToString[q.Qtype], dns.ClassToString[q.Qclass], getCIDR(remote.String())}
+	logger.Info("%s lookup %s", remote, Q.String())
 
 	IPQuery := h.isIPQuery(q)
-
+	logger.Debug("Is ip Query %s", IPQuery)
 	// Query hosts
 	if settings.Hosts.Enable && IPQuery > 0 {
-		if ips, ok := h.hosts.Get(Q.qname, IPQuery); ok {
+		if ips, ok := h.hosts.Get(Q, IPQuery); ok {
 			m := new(dns.Msg)
 			m.SetReply(req)
 

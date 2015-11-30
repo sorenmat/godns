@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/hoisie/redis"
+	"encoding/json"
 )
 
 type Hosts struct {
@@ -34,16 +35,20 @@ func NewHosts(hs HostsSettings, rs RedisSettings) Hosts {
 /*
 Match local /etc/hosts file first, remote redis records second
 */
-func (h *Hosts) Get(domain string, family int) ([]net.IP, bool) {
+func (h *Hosts) Get(domain Question, family int) ([]net.IP, bool) {
 
 	var sips []string
 	var ip net.IP
 	var ips []net.IP
 
-	sips, ok := h.fileHosts.Get(domain)
+	sips, ok := h.fileHosts.Get(domain.qname)
+	logger.Debug("Got result from filehost '%v' was %v\n", sips, ok)
 	if !ok {
 		if h.redisHosts != nil {
-			sips, ok = h.redisHosts.Get(domain)
+			logger.Debug("Trying to get key '%v' from redis\n", domain.qname + "-" + domain.cidr)
+			sips, ok = h.redisHosts.Get(domain.qname + "-" + domain.cidr)
+		} else {
+			logger.Debug("Redis host was null")
 		}
 	}
 
@@ -115,8 +120,22 @@ func (r *RedisHosts) Set(domain, ip string) (bool, error) {
 	return r.redis.Hset(r.key, domain, []byte(ip))
 }
 
+type Host struct {
+	IP       string   `form:"ip"`
+	Domain   string `form:"domain"`
+	CidrMask string `form:"mask"`
+}
+
 func (r *RedisHosts) Refresh() {
-	err := r.redis.Hgetall(r.key, r.hosts)
+	var RawHostsRecord = make(map[string][]byte)
+	err := r.redis.Hgetall(r.key, RawHostsRecord)
+	if err == nil {
+		for k, v := range RawHostsRecord {
+			host := &Host{}
+			json.Unmarshal(v, host)
+			r.hosts[k] = host.IP
+		}
+	}
 	if err != nil {
 		logger.Warn("Update hosts records from redis failed %s", err)
 	} else {
@@ -166,7 +185,7 @@ func (f *FileHosts) Refresh() {
 			continue
 		}
 
-		domain := sli[len(sli)-1]
+		domain := sli[len(sli) - 1]
 		ip := sli[0]
 		if !f.isDomain(domain) || !f.isIP(ip) {
 			continue

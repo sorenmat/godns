@@ -30,6 +30,7 @@ type Settings struct {
 	Log          LogSettings       `toml:"log"`
 	Cache        CacheSettings     `toml:"cache"`
 	Hosts        HostsSettings     `toml:"hosts"`
+	Cidrs        CidrSettings      `toml:"cidrs"`
 }
 
 type ResolvSettings struct {
@@ -80,6 +81,10 @@ type HostsSettings struct {
 	RedisEnable bool   `toml:"redis-enable"`
 	RedisKey    string `toml:"redis-key"`
 	TTL         uint32 `toml:"ttl"`
+}
+
+type CidrSettings struct {
+	Mask []string `toml:"mask"`
 }
 
 func init() {
